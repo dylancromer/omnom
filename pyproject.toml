@@ -1,0 +1,95 @@
+[tool.ruff]
+    exclude = [
+        ".bzr",
+        ".direnv",
+        ".eggs",
+        ".git",
+        ".git-rewrite",
+        ".hg",
+        ".mypy_cache",
+        ".nox",
+        ".pants.d",
+        ".pytype",
+        ".ruff_cache",
+        ".svn",
+        ".tox",
+        ".venv",
+        "__pypackages__",
+        "_build",
+        "buck-out",
+        "build",
+        "dist",
+        "node_modules",
+        "venv",
+    ]
+
+    # Same as Black.
+    line-length = 110
+
+[tool.pyright]
+    ignore = ["scipy"]
+    useLibraryCodeForTypes = false
+    reportMissingModuleSource = "warning"
+    reportMissingImports = "error"
+    reportUndefinedVariable = "error"
+    reportAssertAlwaysTrue = "error"
+    reportInvalidStringEscapeSequence = "error"
+    reportInvalidTypeVarUse = "error"
+    reportMissingTypeStubs = "error"
+    reportSelfClsParameterName = "error"
+    reportUnsupportedDunderAll = "error"
+    reportUnusedExpression = "error"
+    reportWildcardImportFromLibrary = "error"
+    reportGeneralTypeIssues = "error"
+    reportOptionalSubscript = "error"
+    reportOptionalMemberAccess = "error"
+    reportOptionalCall = "error"
+    reportOptionalIterable = "error"
+    reportOptionalContextManager = "error"
+    reportOptionalOperand = "error"
+    reportTypedDictNotRequiredAccess = "error"
+    reportPrivateImportUsage = "error"
+    reportUnboundVariable = "error"
+    reportUnusedCoroutine = "error"
+    reportConstantRedefinition = "error"
+    reportDeprecated = "error"
+    reportDuplicateImport = "error"
+    reportFunctionMemberAccess = "error"
+    reportIncompatibleMethodOverride = "error"
+    reportIncompatibleVariableOverride = "error"
+    reportIncompleteStub = "error"
+    reportInconsistentConstructor = "error"
+    reportInvalidStubStatement = "error"
+    reportMatchNotExhaustive = "error"
+    reportMissingParameterType = "error"
+    reportOverlappingOverload = "error"
+    reportTypeCommentUsage = "error"
+    reportUnknownArgumentType = "error"
+    reportUnknownLambdaType = "error"
+    reportUnknownMemberType = "error"
+    reportUnknownParameterType = "error"
+    reportUnknownVariableType = "error"
+    reportUnnecessaryCast = "error"
+    reportUnnecessaryComparison = "error"
+    reportUnnecessaryContains = "error"
+    reportUnnecessaryIsInstance = "error"
+    reportUnusedClass = "error"
+    reportUnusedImport = "error"
+    reportUnusedFunction = "error"
+    reportUnusedVariable = "error"
+    reportUntypedBaseClass = "error"
+    reportUntypedClassDecorator = "error"
+    reportUntypedFunctionDecorator = "error"
+    reportUntypedNamedTuple = "error"
+    reportImplicitOverride = "error"
+    reportImportCycles = "error"
+    reportImplicitStringConcatenation = "error"
+    reportCallInDefaultInitializer = "warning"
+    reportMissingSuperCall = "warning"
+    reportShadowedImports = "warning"
+    reportUnnecessaryTypeIgnoreComment = "error"
+    reportUnusedCallResult = "warning"
+    reportMissingTypeArgument = "none"
+    reportPrivateUsage = "none"
+
+    pythonVersion = "3.12"
