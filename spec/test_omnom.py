@@ -1,6 +1,9 @@
 from __future__ import annotations
 import pytest
-from omnom import MarkdownParser, MdCode, NomNomlSettings
+from omnom import MarkdownParser, MdCode, NomNomlSettings, NomNomMapper
+from marko.block import BlockElement, Paragraph
+from marko.parser import Parser
+from marko.inline import Image, RawText
 
 
 def describe_MarkdownParser() -> None:
@@ -12,6 +15,10 @@ def describe_MarkdownParser() -> None:
             + "Some lovely text\n"
             + "\n"
             + "## A lovely subtitle\n"
+            + "\n"
+            + "![some_image](some_image_uri)\n"
+            + "\n"
+            + "[some_link](some_link_uri)\n"
             + "\n"
             + "```nomnoml\n"
             + "  [A] -> [B]\n"
@@ -44,6 +51,10 @@ def describe_MarkdownParser() -> None:
                 + "\n"
                 + "## A lovely subtitle\n"
                 + "\n"
+                + "![some_image](some_image_uri)\n"
+                + "\n"
+                + "[some_link](some_link_uri)\n"
+                + "\n"
                 + "XXX\n"
                 + "\n"
                 + "testing 123\n"
@@ -55,14 +66,24 @@ def describe_MarkdownParser() -> None:
                 + "blah blah\n"
             )
 
+        @pytest.fixture
+        def replacement_block() -> BlockElement:
+            source_text = "XXX\n"
+            parser = Parser()
+            doc = parser.parse(source_text)
+            assert isinstance(doc.children[0], BlockElement)
+            return doc.children[0]
+
+
         def it_replaces_the_code_blocks_in_the_markdown(
             example_md: str,
             what_replacement_should_be: str,
+            replacement_block: BlockElement,
         ) -> None:
             parser = MarkdownParser()
             replaced_md = parser.replace_code_blocks(
                 lang="nomnoml",
-                replacements=["XXX\n"],
+                replacements=[replacement_block],
                 source=example_md,
             )
             assert replaced_md == what_replacement_should_be
@@ -77,6 +98,10 @@ def describe_MdCodeBlocks() -> None:
             + "Some lovely text\n"
             + "\n"
             + "## A lovely subtitle\n"
+            + "\n"
+            + "![some_image](some_image_uri)\n"
+            + "\n"
+            + "[some_link](some_link_uri)\n"
             + "\n"
             + "```nomnoml\n"
             + "  [A] -> [B]\n"
@@ -110,3 +135,32 @@ def describe_MdCodeBlocks() -> None:
                 settings=NomNomlSettings.new(nomnoml_settings),
             )
             assert nomnoml_with_settings == [what_it_should_be]
+
+
+def describe_NomNomMapper() -> None:
+    def describe_nomnoml_to_md_image() -> None:
+        @pytest.fixture
+        def nomnoml_mdcode() -> MdCode:
+            nomnoml_raw = "#name: a_b_diagram\n[A] -> [B]"
+            return MdCode(
+                lang="nomnoml",
+                raw=nomnoml_raw,
+            )
+
+        def it_maps_a_nomnoml_block_to_a_markdown_image(
+            nomnoml_mdcode: MdCode,
+        ) -> None:
+            mapper = NomNomMapper()
+
+            nomnoml_image_paragraph = mapper.nomnoml_to_md_image(nomnoml_mdcode)
+            assert isinstance(nomnoml_image_paragraph, Paragraph)
+            assert len(nomnoml_image_paragraph.children) == 1
+
+            nomnoml_image = nomnoml_image_paragraph.children[0]
+            assert isinstance(nomnoml_image, Image)
+            assert len(nomnoml_image.children) == 1
+            assert nomnoml_image.dest == "a_b_diagram_nomnoml.svg"
+
+            nomnoml_image_text = nomnoml_image.children[0]
+            assert isinstance(nomnoml_image_text, RawText)
+            assert nomnoml_image_text.children == "a_b_diagram"

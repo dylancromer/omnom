@@ -1,17 +1,18 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Self
-import marko
+from typing import Self, ClassVar
+import re
+from marko import Markdown
 from marko.block import (
-    Document as MarkoDocument,
-    FencedCode as MarkoFencedCode,
-    BlockElement as MarkoBlockElement,
-    BlankLine as MarkoBlankLine,
-    Heading as MarkoHeading,
-    Paragraph as MarkoParagraph,
+    Document,
+    FencedCode,
+    BlockElement,
+    Paragraph,
 )
 from marko.inline import RawText
-from marko.element import Element as MarkoElement
+from marko.element import Element
+from marko.md_renderer import MarkdownRenderer
+from marko.parser import Parser
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,9 @@ class MdCode:
     lang: str
     raw: str
 
+    def get_lines(self) -> list[str]:
+        return self.raw.split("\n")
+
 
 @dataclass(frozen=True)
 class MdCodeBlocks:
@@ -35,27 +39,27 @@ class MdCodeBlocks:
     langs: list[str]
 
     @classmethod
-    def _get_fences(cls, markdown: MarkoDocument) -> list[MarkoFencedCode]:
-        return [child for child in markdown.children if isinstance(child, MarkoFencedCode)]
+    def _get_fences(cls, document: Document) -> list[FencedCode]:
+        return [child for child in document.children if isinstance(child, FencedCode)]
 
     @classmethod
-    def _marko_to_mdcode(cls, marko_cf: MarkoFencedCode) -> MdCode:
-        assert len(marko_cf.children) == 1
+    def _fenced_code_to_mdcode(cls, fenced_code: FencedCode) -> MdCode:
+        assert len(fenced_code.children) == 1
 
-        raw_text_obj = marko_cf.children[0]
+        raw_text_obj = fenced_code.children[0]
         assert isinstance(raw_text_obj, RawText)
         raw_text_ = raw_text_obj.children
         raw_text_lines = raw_text_.split("\n")
         raw_text = "\n".join(line.strip() for line in raw_text_lines)
         return MdCode(
-            lang=marko_cf.lang,
+            lang=fenced_code.lang,
             raw=raw_text,
         )
 
     @classmethod
-    def from_marko(cls, marko_markdown: MarkoDocument) -> Self:
-        marko_codefences = cls._get_fences(marko_markdown)
-        code_blocks = [cls._marko_to_mdcode(marko_cf) for marko_cf in marko_codefences]
+    def from_document(cls, document: Document) -> Self:
+        codefences = cls._get_fences(document)
+        code_blocks = [cls._fenced_code_to_mdcode(cf) for cf in codefences]
         return cls(
             code_blocks=code_blocks,
             langs=[mdcode.lang for mdcode in code_blocks],
@@ -85,84 +89,82 @@ class MdCodeBlocks:
         ]
 
 
-class _CodeFenceMarker:
-    pass
-
-
+@dataclass
 class MarkdownParser:
-    @classmethod
-    def _make_markdown(cls, markdown_string: str) -> MarkoDocument:
-        return marko.parse(markdown_string)
+    _markdown_handler: Markdown = Markdown(
+        parser=Parser,
+        renderer=MarkdownRenderer,
+    )
 
-    @classmethod
-    def get_code_blocks(cls, markdown_str: str) -> MdCodeBlocks:
-        markdown = cls._make_markdown(markdown_str)
-        return MdCodeBlocks.from_marko(markdown)
+    def _make_document(self, markdown_string: str) -> Document:
+        return self._markdown_handler.parse(markdown_string)
 
-    @classmethod
-    def _is_nomnoml(cls, element: MarkoElement) -> bool:
-        return isinstance(element, MarkoFencedCode) and element.lang == "nomnoml"
+    def get_code_blocks(self, markdown_str: str) -> MdCodeBlocks:
+        document = self._make_document(markdown_str)
+        return MdCodeBlocks.from_document(document)
 
-    @classmethod
-    def _get_nomnoml_block_positions(
-        cls,
-        markdown: MarkoDocument,
+    def _is_lang(self, element: Element, lang: str) -> bool:
+        return isinstance(element, FencedCode) and element.lang == lang
+
+    def _get_code_block_positions(
+        self,
+        document: Document,
+        lang: str,
     ) -> list[int]:
-        markdown_elements = markdown.children
+        document_elements = document.children
         return [
-            idx for idx, element in enumerate(markdown_elements)
-            if cls._is_nomnoml(element)
+            idx for idx, element in enumerate(document_elements)
+            if self._is_lang(element=element, lang=lang)
         ]
 
-    @classmethod
-    def _raw_string_from_element(cls, element: MarkoBlockElement) -> str:
-        assert len(element.children) == 1, element
-        raw_text_obj = element.children[0]
-        assert isinstance(raw_text_obj, RawText)
-        assert isinstance(raw_text_obj.children, str)
-        return raw_text_obj.children
-
-    @classmethod
-    def _element_to_string(cls, element: MarkoElement) -> str | _CodeFenceMarker:
-        if isinstance(element, MarkoBlankLine):
-            return "\n"
-
-        assert isinstance(element, MarkoBlockElement)
-        raw_text = cls._raw_string_from_element(element)
-
-        if isinstance(element, MarkoFencedCode):
-            return f"```{element.lang}\n" + raw_text + "```\n"
-        elif isinstance(element, MarkoHeading):
-            return f"{element.level*"#"} {raw_text}\n"
-        else:
-            assert isinstance(element, MarkoParagraph)
-            return raw_text + "\n"
-
-    @classmethod
-    def _cast_to_string(cls, ele_str: str | _CodeFenceMarker) -> str:
-        assert isinstance(ele_str, str)
-        return ele_str
-
-    @classmethod
-    def _cast_to_list_of_strings(cls, element_strings: list[str | _CodeFenceMarker]) -> list[str]:
-        return [cls._cast_to_string(ele_str) for ele_str in element_strings]
-
-    @classmethod
     def replace_code_blocks(
-        cls,
+        self,
         lang: str,
-        replacements: list[str],
+        replacements: list[BlockElement],
         source: str,
     ) -> str:
-        markdown = cls._make_markdown(source)
-        nomnoml_block_indices = cls._get_nomnoml_block_positions(markdown)
-        markdown_element_strings = [
-            cls._element_to_string(element) for element in markdown.children
-        ]
+        document = self._make_document(source)
 
-        assert len(replacements) == len(nomnoml_block_indices)
+        code_block_indices = self._get_code_block_positions(
+            document=document,
+            lang=lang,
+        )
+        assert len(replacements) == len(code_block_indices)
 
-        for idx, replacement in zip(nomnoml_block_indices, replacements):
-            markdown_element_strings[idx] = replacement
-        markdown_element_strings = cls._cast_to_list_of_strings(markdown_element_strings)
-        return "".join(markdown_element_strings)
+        new_document_children = list(document.children)
+        for idx, replacement in zip(code_block_indices, replacements):
+            new_document_children[idx] = replacement
+
+        document.children = new_document_children
+        return self._markdown_handler.render(document)
+
+
+@dataclass
+class NomNomMapper:
+    _parser: Parser = Parser()
+    MATCH_PATTERN: ClassVar[str] = r"\#name: \w+"
+    REPLACEMENT_STRING: ClassVar[str] = "#name: "
+    IMAGE_SUFFIX: ClassVar[str] = "_nomnoml.svg"
+
+    def _find_name_line(self, nomnoml_lines: list[str]) -> str:
+        _matches = [re.fullmatch(self.MATCH_PATTERN, line) for line in nomnoml_lines]
+        matches = [_match.string for _match in _matches if _match is not None]
+        assert len(matches) == 1
+        return matches[0]
+
+    def _extract_name(self, nomnoml: MdCode) -> str:
+        nomnoml_lines = nomnoml.get_lines()
+        name_line = self._find_name_line(nomnoml_lines)
+        return name_line.replace(self.REPLACEMENT_STRING, "").strip()
+
+    def _generate_image_string(self, name: str) -> str:
+        return f"![{name}]({name + self.IMAGE_SUFFIX})"
+
+    def nomnoml_to_md_image(self, nomnoml: MdCode) -> Paragraph:
+        nomnoml_name = self._extract_name(nomnoml)
+        image_string = self._generate_image_string(nomnoml_name)
+        parsed_md_doc = self._parser.parse(image_string)
+        assert len(parsed_md_doc.children) == 1
+        paragraph = parsed_md_doc.children[0]
+        assert isinstance(paragraph, Paragraph)
+        return paragraph
