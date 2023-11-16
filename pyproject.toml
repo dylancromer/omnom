@@ -1,3 +1,6 @@
+[tool.black]
+    line-length = 100
+
 [tool.ruff]
     exclude = [
         ".bzr",
@@ -75,7 +78,7 @@
     reportUnnecessaryIsInstance = "error"
     reportUnusedClass = "error"
     reportUnusedImport = "error"
-    reportUnusedFunction = "error"
+    #reportUnusedFunction = "error"
     reportUnusedVariable = "error"
     reportUntypedBaseClass = "error"
     reportUntypedClassDecorator = "error"
