@@ -1,0 +1,177 @@
+#!/usr/bin/env python3
+
+from __future__ import annotations
+import argparse
+from tempfile import TemporaryDirectory
+from typing import Sequence, Optional
+from pathlib import Path
+import subprocess
+from marko.block import Paragraph
+from omnom import MarkdownParser, MdCodeBlocks, NomNomlSettings, NomNomMapper, NomNomlCode
+from omnom.defaults import DEFAULT_SETTINGS_STRING
+
+
+DEFAULT_NOMNOML_SETTINGS = NomNomlSettings.new(DEFAULT_SETTINGS_STRING)
+NOML_SUFFIX = ".noml"
+
+
+def _read_markdown(md_path: Path) -> str:
+    return md_path.read_text()
+
+
+def _get_code_blocks(md_string: str) -> MdCodeBlocks:
+    md_parser = MarkdownParser()
+    return md_parser.get_code_blocks(md_string)
+
+
+def _nomnoml_to_md_images(nomnoml_blocks: Sequence[NomNomlCode]) -> Sequence[Paragraph]:
+    mapper = NomNomMapper()
+    return [mapper.nomnoml_to_md_image(nomnoml) for nomnoml in nomnoml_blocks]
+
+
+def _make_new_markdown_source(source: str, replacements: Sequence[Paragraph]) -> str:
+    md_parser = MarkdownParser()
+    return md_parser.replace_code_blocks(
+        lang="nomnoml",
+        replacements=replacements,
+        source=source,
+    )
+
+
+def _make_svg_filename(name: str) -> str:
+    return "/" + name + NomNomMapper.IMAGE_SUFFIX
+
+
+def _make_noml_filename(name: str) -> str:
+    return "/" + name + NOML_SUFFIX
+
+
+def _run_nomnoml(noml_path: Path, svg_path: Path) -> None:
+    _ = subprocess.run(["npx", "nomnoml", str(noml_path), str(svg_path)], check=True)
+
+
+def _run_nomnoml_on_all(noml_paths: Sequence[Path], svg_paths: Sequence[Path]) -> None:
+    for noml_path, svg_path in zip(noml_paths, svg_paths):
+        _run_nomnoml(noml_path=noml_path, svg_path=svg_path)
+
+
+def _get_pandoc_args(markdown_path: Path, dest_path: Path) -> Sequence[str]:
+    return [
+        "pandoc",
+        str(markdown_path.name),
+        "-o",
+        str(dest_path.absolute()),
+        "--pdf-engine",
+        "weasyprint",
+    ]
+
+
+def _get_styled_pandoc_args(markdown_path: Path, dest_path: Path, css: Path) -> Sequence[str]:
+    return [
+        "pandoc",
+        str(markdown_path.name),
+        "--pdf-engine",
+        "weasyprint",
+        "--css",
+        str(css.absolute()),
+        "-o",
+        str(dest_path.absolute()),
+    ]
+
+
+def _run_pandoc_on_md(markdown_path: Path, dest_path: Path, css: Optional[Path]) -> None:
+    if css is None:
+        pandoc_args = _get_pandoc_args(
+            markdown_path=markdown_path,
+            dest_path=dest_path,
+        )
+    else:
+        pandoc_args = _get_styled_pandoc_args(
+            markdown_path=markdown_path,
+            dest_path=dest_path,
+            css=css,
+        )
+
+    _ = subprocess.run(
+        args=pandoc_args,
+        check=True,
+        cwd=str(markdown_path.parent),
+    )
+
+
+def _write_svg_and_create_pdf(
+    md_source: str,
+    nomnoml_blocks: Sequence[NomNomlCode],
+    dest_path: Path,
+    css: Optional[Path],
+) -> None:
+    with TemporaryDirectory() as tmpdirname:
+        md_path = Path(tmpdirname + "/source.md")
+        _ = md_path.write_text(md_source)
+
+        noml_paths = [
+            Path(tmpdirname + _make_noml_filename(nomnoml.name)) for nomnoml in nomnoml_blocks
+        ]
+        for noml_path, noml_block in zip(noml_paths, nomnoml_blocks):
+            _ = noml_path.write_text(noml_block.raw)
+
+        svg_paths = [
+            Path(tmpdirname + _make_svg_filename(nomnoml.name)) for nomnoml in nomnoml_blocks
+        ]
+
+        _run_nomnoml_on_all(noml_paths=noml_paths, svg_paths=svg_paths)
+
+        _run_pandoc_on_md(markdown_path=md_path, dest_path=dest_path, css=css)
+
+
+def main(
+    source_path: Path,
+    dest_path: Path,
+    nomnoml_settings: NomNomlSettings,
+    css: Optional[Path],
+) -> None:
+    raw_markdown = _read_markdown(source_path)
+    code_blocks = _get_code_blocks(raw_markdown)
+
+    nomnoml_blocks = code_blocks.get_nomnoml()
+    replacement_md_images = _nomnoml_to_md_images(nomnoml_blocks)
+
+    nomnoml_blocks_w_settings = code_blocks.get_nomnoml_and_apply_settings(
+        nomnoml_settings,
+    )
+
+    new_md_source = _make_new_markdown_source(
+        source=raw_markdown,
+        replacements=replacement_md_images,
+    )
+
+    _write_svg_and_create_pdf(
+        md_source=new_md_source,
+        nomnoml_blocks=nomnoml_blocks_w_settings,
+        dest_path=dest_path,
+        css=css,
+    )
+
+
+if __name__ == "__main__":
+    arg_parser = argparse.ArgumentParser()
+    _ = arg_parser.add_argument("path", help="Path to markdown file.")
+    _ = arg_parser.add_argument("dest", help="Destination path for output PDF.")
+    _ = arg_parser.add_argument(
+        "--settings",
+        help="Directives to apply to nomnoml diagrams",
+        default=DEFAULT_NOMNOML_SETTINGS,
+    )
+    _ = arg_parser.add_argument(
+        "--css",
+        help="CSS to apply by Pandoc during transformation to PDF.",
+        default=None,
+    )
+    args = arg_parser.parse_args()
+    css = None if args.css is None else Path(args.css)
+    main(
+        source_path=Path(args.path),
+        dest_path=Path(args.dest),
+        nomnoml_settings=args.settings,
+        css=css,
+    )

@@ -1,6 +1,6 @@
 from __future__ import annotations
 from dataclasses import dataclass
-from typing import Self, ClassVar
+from typing import Self, ClassVar, Sequence
 import re
 from marko import Markdown
 from marko.block import (
@@ -29,17 +29,59 @@ class MdCode:
     lang: str
     raw: str
 
-    def get_lines(self) -> list[str]:
+    def get_lines(self) -> Sequence[str]:
         return self.raw.split("\n")
 
 
 @dataclass(frozen=True)
-class MdCodeBlocks:
-    code_blocks: list[MdCode]
-    langs: list[str]
+class NomNomlCode(MdCode):
+    lang: str
+    raw: str
+    name: str
+    MATCH_PATTERN: ClassVar[str] = r"\#name: \w+"
+    REPLACEMENT_STRING: ClassVar[str] = "#name: "
 
     @classmethod
-    def _get_fences(cls, document: Document) -> list[FencedCode]:
+    def _handle_matches_error(cls, matches_len: int) -> None:
+        assert matches_len >= 0
+        assert matches_len != 1
+        if matches_len == 0:
+            msg = "Your NomNoml codefences need to specify a #name directive"
+            raise NoNomNomlNameDirective(msg)
+        else:
+            msg = "One or more NomNoml codefences has too many #name directives"
+            raise TooManyNomNomlNameDirectives(msg)
+
+    @classmethod
+    def _find_name_line(cls, nomnoml_lines: Sequence[str]) -> str:
+        _matches = [re.fullmatch(cls.MATCH_PATTERN, line) for line in nomnoml_lines]
+        matches = [_match.string for _match in _matches if _match is not None]
+        if not len(matches) == 1:
+            cls._handle_matches_error(len(matches))
+        return matches[0]
+
+    @classmethod
+    def _extract_name(cls, nomnoml: MdCode) -> str:
+        nomnoml_lines = nomnoml.get_lines()
+        name_line = cls._find_name_line(nomnoml_lines)
+        return name_line.replace(cls.REPLACEMENT_STRING, "").strip()
+
+    @classmethod
+    def new(cls, nomnoml_mdcode: MdCode) -> Self:
+        return cls(
+            lang=nomnoml_mdcode.lang,
+            raw=nomnoml_mdcode.raw,
+            name=cls._extract_name(nomnoml_mdcode),
+        )
+
+
+@dataclass(frozen=True)
+class MdCodeBlocks:
+    code_blocks: Sequence[MdCode]
+    langs: Sequence[str]
+
+    @classmethod
+    def _get_fences(cls, document: Document) -> Sequence[FencedCode]:
         return [child for child in document.children if isinstance(child, FencedCode)]
 
     @classmethod
@@ -78,11 +120,22 @@ class MdCodeBlocks:
     def _is_nomnoml(self, mdcode: MdCode) -> bool:
         return mdcode.lang == "nomnoml"
 
-    def get_nomnoml(self, settings: NomNomlSettings) -> list[MdCode]:
+    def get_nomnoml(self) -> Sequence[NomNomlCode]:
         return [
-            self._add_settings_to_nomnoml(
-                nomnoml_block=mdcode,
-                settings=settings,
+            NomNomlCode.new(mdcode) for mdcode in self.code_blocks
+            if self._is_nomnoml(mdcode)
+        ]
+
+    def get_nomnoml_and_apply_settings(
+        self,
+        settings: NomNomlSettings,
+    ) -> Sequence[NomNomlCode]:
+        return [
+            NomNomlCode.new(
+                self._add_settings_to_nomnoml(
+                    nomnoml_block=mdcode,
+                    settings=settings,
+                )
             )
             for mdcode in self.code_blocks
             if self._is_nomnoml(mdcode)
@@ -110,7 +163,7 @@ class MarkdownParser:
         self,
         document: Document,
         lang: str,
-    ) -> list[int]:
+    ) -> Sequence[int]:
         document_elements = document.children
         return [
             idx for idx, element in enumerate(document_elements)
@@ -120,7 +173,7 @@ class MarkdownParser:
     def replace_code_blocks(
         self,
         lang: str,
-        replacements: list[BlockElement],
+        replacements: Sequence[BlockElement],
         source: str,
     ) -> str:
         document = self._make_document(source)
@@ -139,29 +192,24 @@ class MarkdownParser:
         return self._markdown_handler.render(document)
 
 
+class NoNomNomlNameDirective(ValueError):
+    pass
+
+
+class TooManyNomNomlNameDirectives(ValueError):
+    pass
+
+
 @dataclass
 class NomNomMapper:
     _parser: Parser = Parser()
-    MATCH_PATTERN: ClassVar[str] = r"\#name: \w+"
-    REPLACEMENT_STRING: ClassVar[str] = "#name: "
     IMAGE_SUFFIX: ClassVar[str] = "_nomnoml.svg"
-
-    def _find_name_line(self, nomnoml_lines: list[str]) -> str:
-        _matches = [re.fullmatch(self.MATCH_PATTERN, line) for line in nomnoml_lines]
-        matches = [_match.string for _match in _matches if _match is not None]
-        assert len(matches) == 1
-        return matches[0]
-
-    def _extract_name(self, nomnoml: MdCode) -> str:
-        nomnoml_lines = nomnoml.get_lines()
-        name_line = self._find_name_line(nomnoml_lines)
-        return name_line.replace(self.REPLACEMENT_STRING, "").strip()
 
     def _generate_image_string(self, name: str) -> str:
         return f"![{name}]({name + self.IMAGE_SUFFIX})"
 
-    def nomnoml_to_md_image(self, nomnoml: MdCode) -> Paragraph:
-        nomnoml_name = self._extract_name(nomnoml)
+    def nomnoml_to_md_image(self, nomnoml: NomNomlCode) -> Paragraph:
+        nomnoml_name = nomnoml.name
         image_string = self._generate_image_string(nomnoml_name)
         parsed_md_doc = self._parser.parse(image_string)
         assert len(parsed_md_doc.children) == 1

@@ -19,7 +19,8 @@ Things things things
 ```
 
 ```nomnoml
-    [A] -> [B] <--> [C]
+    #name: balsamic
+    [A] -> [B] --> [C]
 ```
 
 
