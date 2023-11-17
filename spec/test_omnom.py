@@ -1,6 +1,6 @@
 from __future__ import annotations
 import pytest
-from omnom import MarkdownParser, MdCode, NomNomlSettings, NomNomMapper
+from omnom import MarkdownParser, MdCode, NomNomlSettings, NomNomMapper, NomNomlCode
 from marko.block import BlockElement, Paragraph
 from marko.parser import Parser
 from marko.inline import Image, RawText
@@ -21,6 +21,7 @@ def describe_MarkdownParser() -> None:
             + "[some_link](some_link_uri)\n"
             + "\n"
             + "```nomnoml\n"
+            + "#name: some_name\n"
             + "  [A] -> [B]\n"
             + "  [C] --> [D]\n"
             + "```\n"
@@ -39,7 +40,7 @@ def describe_MarkdownParser() -> None:
             parser = MarkdownParser()
             fences = parser.get_code_blocks(example_md)
             assert fences.langs == ["nomnoml", "python"]
-            assert fences.code_blocks[0].raw == "[A] -> [B]\n[C] --> [D]\n"
+            assert fences.code_blocks[0].raw == "#name: some_name\n[A] -> [B]\n[C] --> [D]\n"
 
     def describe_replace_code_blocks() -> None:
         @pytest.fixture
@@ -104,6 +105,7 @@ def describe_MdCodeBlocks() -> None:
             + "[some_link](some_link_uri)\n"
             + "\n"
             + "```nomnoml\n"
+            + "  #name: some_name\n"
             + "  [A] -> [B]\n"
             + "  [C] --> [D]\n"
             + "```\n"
@@ -116,14 +118,16 @@ def describe_MdCodeBlocks() -> None:
         return settings_data
 
     @pytest.fixture
-    def what_it_should_be(nomnoml_settings: str) -> MdCode:
-        return MdCode(
-            lang="nomnoml",
-            raw=(nomnoml_settings + "[A] -> [B]\n[C] --> [D]\n"),
+    def what_it_should_be(nomnoml_settings: str) -> NomNomlCode:
+        return NomNomlCode.new(
+            MdCode(
+                lang="nomnoml",
+                raw=(nomnoml_settings + "#name: some_name\n[A] -> [B]\n[C] --> [D]\n"),
+            )
         )
 
 
-    def describe_get_nomnoml():
+    def describe_get_nomnoml_and_apply_settings():
         def it_returns_MdCode_objects_of_nomnoml_lang_with_the_settings(
             example_md: str,
             nomnoml_settings: str,
@@ -131,7 +135,7 @@ def describe_MdCodeBlocks() -> None:
         ) -> None:
             parser = MarkdownParser()
             fences = parser.get_code_blocks(example_md)
-            nomnoml_with_settings = fences.get_nomnoml(
+            nomnoml_with_settings = fences.get_nomnoml_and_apply_settings(
                 settings=NomNomlSettings.new(nomnoml_settings),
             )
             assert nomnoml_with_settings == [what_it_should_be]
@@ -140,15 +144,17 @@ def describe_MdCodeBlocks() -> None:
 def describe_NomNomMapper() -> None:
     def describe_nomnoml_to_md_image() -> None:
         @pytest.fixture
-        def nomnoml_mdcode() -> MdCode:
+        def nomnoml_mdcode() -> NomNomlCode:
             nomnoml_raw = "#name: a_b_diagram\n[A] -> [B]"
-            return MdCode(
-                lang="nomnoml",
-                raw=nomnoml_raw,
+            return NomNomlCode.new(
+                MdCode(
+                    lang="nomnoml",
+                    raw=nomnoml_raw,
+                )
             )
 
         def it_maps_a_nomnoml_block_to_a_markdown_image(
-            nomnoml_mdcode: MdCode,
+            nomnoml_mdcode: NomNomlCode,
         ) -> None:
             mapper = NomNomMapper()
 

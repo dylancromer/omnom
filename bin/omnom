@@ -3,7 +3,7 @@
 from __future__ import annotations
 import argparse
 from tempfile import TemporaryDirectory
-from typing import Sequence, Optional
+from typing import Sequence
 from pathlib import Path
 import subprocess
 from marko.block import Paragraph
@@ -62,36 +62,16 @@ def _get_pandoc_args(markdown_path: Path, dest_path: Path) -> Sequence[str]:
         "-o",
         str(dest_path.absolute()),
         "--pdf-engine",
-        "weasyprint",
+        "lualatex",
+        "--toc",
     ]
 
 
-def _get_styled_pandoc_args(markdown_path: Path, dest_path: Path, css: Path) -> Sequence[str]:
-    return [
-        "pandoc",
-        str(markdown_path.name),
-        "--pdf-engine",
-        "weasyprint",
-        "--css",
-        str(css.absolute()),
-        "-o",
-        str(dest_path.absolute()),
-    ]
-
-
-def _run_pandoc_on_md(markdown_path: Path, dest_path: Path, css: Optional[Path]) -> None:
-    if css is None:
-        pandoc_args = _get_pandoc_args(
-            markdown_path=markdown_path,
-            dest_path=dest_path,
-        )
-    else:
-        pandoc_args = _get_styled_pandoc_args(
-            markdown_path=markdown_path,
-            dest_path=dest_path,
-            css=css,
-        )
-
+def _run_pandoc_on_md(markdown_path: Path, dest_path: Path) -> None:
+    pandoc_args = _get_pandoc_args(
+        markdown_path=markdown_path,
+        dest_path=dest_path,
+    )
     _ = subprocess.run(
         args=pandoc_args,
         check=True,
@@ -103,7 +83,6 @@ def _write_svg_and_create_pdf(
     md_source: str,
     nomnoml_blocks: Sequence[NomNomlCode],
     dest_path: Path,
-    css: Optional[Path],
 ) -> None:
     with TemporaryDirectory() as tmpdirname:
         md_path = Path(tmpdirname + "/source.md")
@@ -121,17 +100,37 @@ def _write_svg_and_create_pdf(
 
         _run_nomnoml_on_all(noml_paths=noml_paths, svg_paths=svg_paths)
 
-        _run_pandoc_on_md(markdown_path=md_path, dest_path=dest_path, css=css)
+        _run_pandoc_on_md(markdown_path=md_path, dest_path=dest_path)
 
+
+def _strip_yaml_header(source: str) -> tuple[str, str]:
+    lines = source.split("\n")
+    if not lines[0] == "---":
+        return "", source
+    else:
+        counter = 0
+        header_lines = []
+        for line in lines:
+            if counter >= 2:
+                break
+            if line == "---":
+                counter += 1
+            else:
+                header_lines.append(line)  # type: ignore
+        header_linecount = len(header_lines) + 2
+        rest_of_lines = lines[header_linecount:]
+
+        header_lines = ["---"] + header_lines + ["---"]
+        return "\n".join(header_lines), "\n".join(rest_of_lines)
 
 def main(
     source_path: Path,
     dest_path: Path,
     nomnoml_settings: NomNomlSettings,
-    css: Optional[Path],
 ) -> None:
     raw_markdown = _read_markdown(source_path)
-    code_blocks = _get_code_blocks(raw_markdown)
+    yaml_header, stripped_md = _strip_yaml_header(raw_markdown)
+    code_blocks = _get_code_blocks(stripped_md)
 
     nomnoml_blocks = code_blocks.get_nomnoml()
     replacement_md_images = _nomnoml_to_md_images(nomnoml_blocks)
@@ -141,15 +140,16 @@ def main(
     )
 
     new_md_source = _make_new_markdown_source(
-        source=raw_markdown,
+        source=stripped_md,
         replacements=replacement_md_images,
     )
+
+    new_md_source = yaml_header + "\n" + new_md_source
 
     _write_svg_and_create_pdf(
         md_source=new_md_source,
         nomnoml_blocks=nomnoml_blocks_w_settings,
         dest_path=dest_path,
-        css=css,
     )
 
 
@@ -162,16 +162,9 @@ if __name__ == "__main__":
         help="Directives to apply to nomnoml diagrams",
         default=DEFAULT_NOMNOML_SETTINGS,
     )
-    _ = arg_parser.add_argument(
-        "--css",
-        help="CSS to apply by Pandoc during transformation to PDF.",
-        default=None,
-    )
     args = arg_parser.parse_args()
-    css = None if args.css is None else Path(args.css)
     main(
         source_path=Path(args.path),
         dest_path=Path(args.dest),
         nomnoml_settings=args.settings,
-        css=css,
     )
